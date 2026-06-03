@@ -1,0 +1,10 @@
+.env
+models.json
+outputs/
+__pycache__/
+*.pyc
+*.log
+.pytest_cache/
+.venv/
+venv/
+codex-edge-control-bridge/
