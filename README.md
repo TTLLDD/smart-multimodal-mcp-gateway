@@ -1,123 +1,157 @@
 # Smart Multimodal MCP Gateway
 
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-green.svg)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-ff69b4.svg)](https://modelcontextprotocol.io/)
+
+**一个本地运行的 BYOK MCP 网关，让 AI 工作台的高消耗任务走你自己的模型 API。**
+
+Cursor、Windsurf、Copilot、Trae 这些闭源工作台都有额度限制，而且不允许你自由替换模型。这个网关通过 MCP 协议在你本地运行，把 PPT 生成、论文写作、代码审查、任务规划等重任务路由到你自己配置的模型（DeepSeek、通义千问、OpenAI、Anthropic 等），不消耗工作台额度。
+
 Languages: [中文](#中文说明) | [English](#english)
+
+---
 
 ## 中文说明
 
-### 你的闭源 AI 工具不能自由切 API 吗？
+### 架构
 
-你会有订阅焦虑、额度焦虑、积分焦虑吗？
-
-你是不是已经有自己的 GLM、Mimo、Qwen、GPT-4o 或其他 OpenAI-compatible API Key，却被某些闭源 AI 客户端锁在固定订阅、固定模型、固定额度里？
-
-你会不会觉得很多闭源 AI 工作台很好用，但每一次写长文、做 PPT、拆任务、改论文、总结资料，都不一定值得消耗昂贵的客户端内置额度？
-
-**Smart Multimodal MCP Gateway** 就是为这个痛点做的：一个本地运行的 BYOK MCP SSE 网关。只要你的闭源 AI 客户端支持接入 MCP，它就可以把高消耗任务交给你自己配置的模型 API，而不是只能依赖客户端内置的模型渠道。
-
-简单说：
-
-```text
-闭源 AI 客户端负责：入口、上下文、MCP 调度
-本地网关负责：工具箱、技能路由、模型档案切换
-你的 BYOK 模型负责：长文、PPT、论文、规划、代码审查等重活
+```
+┌──────────────────────────────────────────────┐
+│              MCP 客户端                       │
+│     Cursor / Windsurf / Claude Desktop       │
+└─────────────────┬────────────────────────────┘
+                  │ SSE (MCP 协议)
+                  ▼
+┌──────────────────────────────────────────────┐
+│         Smart Multimodal MCP Gateway          │
+│                                               │
+│  ┌──────────┐  ┌───────────┐  ┌───────────┐  │
+│  │smart_chat│  │task_exec  │  │create_ppt │  │
+│  └─────┬────┘  └─────┬─────┘  └─────┬─────┘  │
+│        │             │              │         │
+│        └──────┬──────┴──────────────┘         │
+│               ▼                               │
+│  ┌────────────────────────────────────────┐   │
+│  │            模型路由层                    │   │
+│  │  auto_skill → ppt / paper / code / plan│   │
+│  └─────────────────┬──────────────────────┘   │
+└────────────────────┼──────────────────────────┘
+                     │ API 调用
+                     ▼
+┌──────────────────────────────────────────────┐
+│               模型 Provider                    │
+│   DeepSeek / Qwen / OpenAI / Anthropic        │
+└──────────────────────────────────────────────┘
 ```
 
-你只需要在支持 MCP SSE 的客户端里导入一个 MCP Server，就可以得到一个本地工具箱：
-
-- 客户端继续负责界面、项目入口和上下文
-- 长内容生成交给你自己的文本模型
-- 截图、架构图、图片理解交给你自己的多模态模型
-- PPT、论文、任务规划、代码审查通过内置 skills 自动路由
-- 多个 API 渠道统一放进模型档案，网页上切换和测试
-
-它特别适合这些场景：
-
-- 想保留闭源 AI 客户端的项目入口和对话体验
-- 想减少内置模型在高消耗任务上的使用频率
-- 想用自己的 API Key 承担 PPT、论文、任务规划、代码审查
-- 想把多个模型档案统一成一个 MCP 工具箱
-- 想把常用工作流做成可开源、可迁移的本地能力包
-
-例如：Qoder 本身可以自定义模型；QoderWork 这类限制更强、不能自由切 BYOK/API 的闭源客户端，才更接近这个项目要解决的典型痛点。
-
-本项目不隶属于任何闭源 AI 客户端、OpenAI、DeepSeek、阿里、智谱、小米或任何模型厂商，也不内置任何真实 API Key。
-
-### 一分钟看懂
+### 痛点对照
 
 | 你的痛点 | 这个项目怎么帮你 |
 | --- | --- |
-| 闭源客户端不能自由切 API | 通过 MCP 工具层接入本地 BYOK 模型 |
-| 订阅、额度、积分压力大 | 把长文、PPT、论文、规划等重活分流到 BYOK 模型 |
-| 日常高 token 任务成本高 | 低价值或高消耗任务可走自有 API |
-| 多个模型切换麻烦 | 用模型档案统一管理文本模型和多模态模型 |
+| 闭源工作台不能自由切 API | 通过 MCP 工具层接入本地 BYOK 模型 |
+| 订阅、额度、积分压力大 | 把长文、PPT、论文等重活分流到 BYOK 模型 |
+| 高 token 任务成本高 | 高消耗任务走自有 API，成本可控 |
+| 多个模型切换麻烦 | 模型档案统一管理，自动路由 |
 | MCP 工具太分散 | 一个 MCP Server 内置聊天、PPT、论文、规划、代码审查 |
-| 想开源给别人用 | 不内置密钥，配置示例、README、忽略规则都已准备好 |
 
 ### 它能解决什么
 
-- **额度焦虑**：长内容生成、PPT、论文、规划等任务可转交给你的 BYOK 模型。
-- **模型切换麻烦**：通过模型档案自动路由文本模型和多模态模型。
-- **工具太分散**：一个 MCP server 内置 `auto_skill`、PPT、论文、任务规划、代码审查等能力。
-- **开源迁移困难**：配置、README、MCP JSON 示例和 `.gitignore` 已整理好。
+- **额度焦虑**：长内容生成、PPT、论文、规划等任务可转交给你的 BYOK 模型，不消耗工作台额度。
+- **模型切换**：通过模型档案自动路由文本模型和多模态模型。
+- **工具整合**：一个 MCP Server 内置 `auto_skill`、PPT、论文、任务规划、代码审查。
+- **数据本地**：所有 Key、配置、调用记录都在本地，不经过第三方服务器。
 
 ### 它不能解决什么
 
-- 它不能让不支持 MCP 的客户端凭空接入工具。
-- 它不是任何闭源客户端的官方 BYOK 替代方案。
-- 它不会绕过任何订阅、鉴权或模型限制。
-- 它更像是在闭源客户端旁边加一个本地 MCP 工具层，把重活交给你的自有 API。
+- 不能让不支持 MCP 的客户端接入工具。
+- 不能替代工作台本身的代码补全、上下文理解等核心能力。
+- 不会绕过任何订阅、鉴权或模型限制。
+- 它更像是在工作台旁边加一个本地 MCP 工具层，把重活交给你的自有 API。
 
-### 能力
+### 工具列表
 
-这个项目只需要导入一个 MCP Server，但内部提供一组工具：
+网关暴露 7 个 MCP 工具，分为三层：
 
-- `auto_skill`：自动判断任务类型，并路由到最合适的内置 skill
-- `toolbox`：统一入口，支持 `action=chat | task | ppt`
-- `smart_chat`：文本/多模态聊天，自动路由到模型档案
-- `task_executor`：把完整任务交给你的 BYOK 文本模型
-- `create_ppt`：生成本地 `.pptx` 文件，输出到 `outputs/`
-- `list_skills`：列出内置 skills
-- `run_skill`：手动运行指定内置 skill
+**基础层**
 
-内置 skills：
+| 工具 | 说明 |
+| --- | --- |
+| `smart_chat` | 多模态智能路由，支持文本和图片输入，自动匹配模型 |
+| `task_executor` | 任务委托，把完整的写作/分析/总结任务交给 BYOK 模型 |
 
-- `ppt_writer`：PPT / 演示文稿
-- `paper_writer`：论文写作、论文润色、学术段落
-- `task_planner`：任务拆解、执行计划
-- `code_reviewer`：代码审查、风险和测试缺口
+**应用层**
 
-### 安装
+| 工具 | 说明 |
+| --- | --- |
+| `create_ppt` | 本地生成 PPTX 文件，输出到 `outputs/` |
+| `toolbox` | 统一入口，支持 `action=chat \| task \| ppt` |
 
-```powershell
+**技能层**
+
+| 工具 | 说明 |
+| --- | --- |
+| `auto_skill` | 自动判断任务类型，路由到最合适的内置技能 |
+| `list_skills` | 列出所有内置技能 |
+| `run_skill` | 手动运行指定技能 |
+
+### 内置技能
+
+| 技能 | 触发关键词 | 说明 |
+| --- | --- | --- |
+| `ppt_writer` | PPT / slide / 演示文稿 | 生成幻灯片大纲和 PPTX 文件 |
+| `paper_writer` | 论文 / 学术 / 润色 | 论文写作、段落润色 |
+| `task_planner` | 计划 / 拆解 / 步骤 | 任务拆解和执行计划 |
+| `code_reviewer` | 代码审查 / bug / 测试 | 代码审查、风险检测 |
+
+`auto_skill` 会根据输入自动匹配，不需要手动选择。
+
+### 快速开始
+
+**1. 克隆并创建虚拟环境**
+
+```bash
+git clone https://github.com/TTLLDD/smart-multimodal-mcp-gateway.git
+cd smart-multimodal-mcp-gateway
 python -m venv .venv
+
+# Linux / macOS
+source .venv/bin/activate
+
+# Windows
 .\.venv\Scripts\activate
-python -m pip install -r requirements.txt
+```
+
+**2. 安装依赖**
+
+```bash
+pip install -r requirements.txt
+```
+
+**3. 配置 API Key**
+
+```bash
+# Linux / macOS
+cp .env.example .env
+
+# Windows
 copy .env.example .env
 ```
 
-然后编辑 `.env`，或者启动服务后打开网页配置页。
+编辑 `.env`，填入你的 API Key（DeepSeek、通义千问、OpenAI 等），或者启动后在网页配置页面中设置。
 
-### 运行
+**4. 启动服务**
 
-```powershell
-python -m uvicorn main:app --host 127.0.0.1 --port 8010
+```bash
+uvicorn main:app --host 127.0.0.1 --port 8010
 ```
 
-配置页：
+- 配置页面：`http://localhost:8010/`
+- MCP SSE 地址：`http://localhost:8010/sse`
 
-```text
-http://localhost:8010/
-```
+**5. 接入 MCP 客户端**
 
-MCP SSE 地址：
-
-```text
-http://localhost:8010/sse
-```
-
-### MCP 配置
-
-优先使用：
+在 Cursor、Windsurf、Claude Desktop 等客户端的 MCP 配置中添加：
 
 ```json
 {
@@ -130,7 +164,7 @@ http://localhost:8010/sse
 }
 ```
 
-如果客户端不认 `transport`，可尝试：
+如果客户端不识别 `transport` 字段，可以用 `type` 替代：
 
 ```json
 {
@@ -145,166 +179,74 @@ http://localhost:8010/sse
 
 ### 使用示例
 
-自动路由任务：
+**自动路由任务**
 
-```json
-{
-  "task": "帮我做一份 8 页关于 AI 本地工具箱的 PPT",
-  "pages": 8
-}
-```
+在工作台中直接输入：
 
-手动运行 skill：
+> 帮我做一份 8 页关于 AI 本地化工具链的 PPT
 
-```json
-{
-  "skill": "paper_writer",
-  "task": "帮我写一段关于多模态 API 网关的论文引言"
-}
-```
+`auto_skill` 会自动识别为 PPT 任务，路由到 `ppt_writer`，模型生成结构化内容后渲染为 PPTX 文件。
 
-统一工具入口：
+**手动运行技能**
 
-```json
-{
-  "action": "ppt",
-  "topic": "AI 本地工具箱如何减少内置模型消耗",
-  "pages": 8,
-  "style": "简洁蓝白"
-}
-```
+> 用 paper_writer 帮我写一段关于多模态 API 网关的论文引言
 
-`auto_skill` 的内部路由规则：
+**多模态聊天**
 
-- PPT / slide / 演示文稿 -> `ppt_writer`
-- 论文 / 学术写作 / 润色 -> `paper_writer`
-- 代码审查 / 找 bug / 测试风险 -> `code_reviewer`
-- 计划 / 拆解 / 步骤 -> `task_planner`
-- 其他任务 -> `task_executor`
+发送一张架构图并提问：
+
+> 帮我分析这张架构图的设计优缺点
+
+`smart_chat` 会自动路由到视觉模型（如 qwen-vl-max 或 gpt-4o）。
 
 ### 安全说明
 
-- API Key 只保存在本地 `.env` / `models.json`
-- 不要提交 `.env` 或 `models.json`
+- API Key 只保存在本地 `.env` 和 `models.json` 中
+- **不要**提交 `.env` 或 `models.json`（已在 `.gitignore` 中排除）
 - 默认不记录完整请求体和 API Key
-- Base64 图片会原样转发，不压缩、不改写
+- Base64 图片原样转发，不压缩、不改写
+
+### 技术栈
+
+- **Python 3.10+** + **FastAPI**
+- **MCP SDK** (FastMCP)
+- **SSE** 协议传输
+- **httpx** 异步 HTTP 调用
+- **python-pptx** PPTX 渲染
+
+---
 
 ## English
 
-### Is Your Closed AI Client Locked To Its Own API?
+A local BYOK MCP gateway that routes high-consumption tasks from AI workbenches to your own model APIs.
 
-Do subscriptions, quotas, or credit limits make you hesitate before asking for long outputs?
+Closed-source workbenches like Cursor, Windsurf, Copilot, and Trae impose quota limits and don't allow you to freely swap models. This gateway runs locally via the MCP protocol, routing heavy tasks — PPT generation, paper writing, code review, task planning — to your own configured models (DeepSeek, Qwen, OpenAI, Anthropic, etc.) without consuming your workbench quota.
 
-Do you already have GLM, Mimo, Qwen, GPT-4o, or another OpenAI-compatible API key, but your closed AI client does not let you freely switch to your own API?
+### What It Solves
 
-Do some closed AI workbenches feel useful, but too costly for every long answer, slide deck, paper edit, task breakdown, or summary?
-
-**Smart Multimodal MCP Gateway** is built for that pain point: a local BYOK MCP SSE gateway. If your closed AI client supports MCP, this gateway can route high-consumption tasks to your own model APIs instead of forcing everything through the client's built-in model channel.
-
-In short:
-
-```text
-The closed AI client handles: entrypoint, context, MCP orchestration
-The local gateway handles: tools, skill routing, model profile switching
-Your BYOK models handle: long text, PPT, papers, planning, code review, and other heavy work
-```
-
-Import one MCP server into any MCP SSE-compatible client, and you get a local toolbox:
-
-- keep the client UI, project entrypoint, and context
-- send long-form generation to your own text model
-- send screenshots, diagrams, and image understanding to your own multimodal model
-- route PPT, paper writing, planning, and code review through bundled skills
-- manage multiple API channels through local model profiles and a web UI
-
-It is especially useful when you want to:
-
-- keep a closed AI client's project and chat experience
-- reduce built-in model usage on high-consumption tasks
-- use your own API keys for PPT, paper writing, planning, and code review
-- manage multiple model profiles through one MCP server
-- package repeatable workflows as local, open-source-friendly skills
-
-For example: Qoder itself can be configured with custom models; more restrictive clients such as QoderWork, where BYOK/API switching is limited, are closer to the typical pain point this project targets.
-
-This project is not affiliated with any closed AI client, OpenAI, DeepSeek, Alibaba, Zhipu, Xiaomi, or any model provider. It does not include API keys.
-
-### At A Glance
-
-| Pain Point | How This Helps |
-| --- | --- |
-| Closed clients cannot freely switch APIs | Add a local BYOK model layer through MCP tools |
-| Subscriptions, quotas, or credits feel tight | Offload long text, PPT, papers, and planning to BYOK models |
-| Routine high-token work is costly | Route lower-value or high-consumption tasks to your own API |
-| Switching models is annoying | Manage text and multimodal models through local profiles |
-| MCP tools are scattered | One MCP server exposes chat, PPT, paper, planning, and code review |
-| You want to open source it | No embedded keys; examples, README, and ignore rules are ready |
-
-### What It Helps With
-
-- **Quota anxiety**: offload long-form generation, PPT, paper writing, and planning to your own BYOK models.
+- **Quota anxiety**: offload long-form generation, PPT, papers, and planning to your own BYOK models.
 - **Model switching**: route text and multimodal tasks through local model profiles.
-- **Scattered tools**: one MCP server exposes `auto_skill`, PPT, paper writing, planning, and code review.
-- **Open-source portability**: README, MCP config example, and `.gitignore` are included.
+- **Tool consolidation**: one MCP server exposes chat, PPT, paper, planning, and code review.
+- **Data locality**: all keys, configs, and logs stay on your machine.
 
 ### What It Does Not Do
 
-- It cannot add MCP support to clients that do not support MCP.
-- It is not an official BYOK replacement for any closed AI client.
-- It does not bypass subscriptions, authentication, or model restrictions.
-- It adds a local MCP tool layer beside your closed client, while your own APIs do the heavy work.
+- Cannot add MCP support to clients that don't support MCP.
+- Cannot replace your workbench's built-in code completion or context understanding.
+- Does not bypass subscriptions, authentication, or model restrictions.
 
-### Features
+### Quick Start
 
-You only need to import one MCP server. The server exposes a small local toolbox:
-
-- `auto_skill`: automatically route a task to the best bundled skill
-- `toolbox`: unified entrypoint, with `action=chat | task | ppt`
-- `smart_chat`: route text/image chat to configured model profiles
-- `task_executor`: delegate a complete text task to your BYOK model
-- `create_ppt`: generate a local `.pptx` file under `outputs/`
-- `list_skills`: list bundled local skills
-- `run_skill`: run a bundled local skill
-
-Bundled skills:
-
-- `ppt_writer`: PPT / slide decks
-- `paper_writer`: academic writing and polishing
-- `task_planner`: task breakdown and execution plans
-- `code_reviewer`: code review, risks, and missing tests
-
-### Install
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-python -m pip install -r requirements.txt
-copy .env.example .env
+```bash
+git clone https://github.com/TTLLDD/smart-multimodal-mcp-gateway.git
+cd smart-multimodal-mcp-gateway
+python -m venv .venv && source .venv/bin/activate  # Windows: .\.venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env  # Edit with your API keys
+uvicorn main:app --host 127.0.0.1 --port 8010
 ```
 
-Then edit `.env`, or open the web config page after starting the service.
-
-### Run
-
-```powershell
-python -m uvicorn main:app --host 127.0.0.1 --port 8010
-```
-
-Config page:
-
-```text
-http://localhost:8010/
-```
-
-MCP SSE URL:
-
-```text
-http://localhost:8010/sse
-```
-
-### MCP Config
-
-Recommended:
+MCP endpoint: `http://localhost:8010/sse`
 
 ```json
 {
@@ -317,61 +259,43 @@ Recommended:
 }
 ```
 
-Some clients use `type` instead of `transport`:
+### Tools
 
-```json
-{
-  "mcpServers": {
-    "smart-multimodal-mcp-gateway": {
-      "type": "sse",
-      "url": "http://localhost:8010/sse"
-    }
-  }
-}
-```
+| Tool | Description |
+| --- | --- |
+| `smart_chat` | Multimodal routing (text + images) |
+| `task_executor` | Delegate full tasks to your BYOK model |
+| `create_ppt` | Generate local PPTX files |
+| `toolbox` | Unified entry: `chat`, `task`, `ppt` |
+| `auto_skill` | Auto-route to the best built-in skill |
+| `list_skills` | List available skills |
+| `run_skill` | Run a specific skill |
 
-### Examples
+### Built-in Skills
 
-Automatically route a task:
+| Skill | Description |
+| --- | --- |
+| `ppt_writer` | Slide deck generation |
+| `paper_writer` | Academic writing and polishing |
+| `task_planner` | Task breakdown and execution plans |
+| `code_reviewer` | Code review, risks, and test gaps |
 
-```json
-{
-  "task": "Create an 8-page PPT about how a local AI toolbox reduces built-in model usage",
-  "pages": 8
-}
-```
+### Tech Stack
 
-Run a bundled skill:
-
-```json
-{
-  "skill": "paper_writer",
-  "task": "Write an introduction paragraph about a multimodal API gateway"
-}
-```
-
-Use the unified toolbox:
-
-```json
-{
-  "action": "ppt",
-  "topic": "How a local AI toolbox reduces built-in model usage",
-  "pages": 8,
-  "style": "clean blue-white"
-}
-```
-
-`auto_skill` routes internally:
-
-- PPT / slide requests -> `ppt_writer`
-- paper / academic writing -> `paper_writer`
-- code review -> `code_reviewer`
-- planning / task breakdown -> `task_planner`
-- everything else -> `task_executor`
+Python 3.10+ · FastAPI · MCP SDK (FastMCP) · SSE · httpx · python-pptx
 
 ### Safety
 
-- API keys are stored locally in `.env` / `models.json`
-- Do not commit `.env` or `models.json`
-- Full request bodies and API keys are not logged by default
-- Base64 image payloads are forwarded unchanged
+- API keys stored locally in `.env` / `models.json` — never committed.
+- Full request bodies and keys are not logged by default.
+- Base64 images forwarded unchanged.
+
+---
+
+## License
+
+This project is licensed under the [AGPL-3.0](LICENSE) license.
+
+## Star History
+
+If this project helps you, consider giving it a star!
